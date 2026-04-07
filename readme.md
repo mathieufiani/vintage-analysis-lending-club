@@ -36,3 +36,9 @@ Live dashboard: [[URL]](https://vintage-analysis-lending-club.streamlit.app/)
 ## Future Evolution
 - Rebuild dashboard in React + D3.js for production-grade interactivity
 - Connect vintage analysis to a custom RAG for natural language portfolio querying
+- Extend PSI analysis back to 2010 and allow user-defined reference period and thresholds
+- Add roll rate analysis (30→60→90 days) as early warning indicators
+- Connect to a custom RAG for natural language portfolio querying
+- Replace static CSVs with a live PostgreSQL database for real-time monitoring
+
+Note: The Vintage Risk Score is a composite indicator built for monitoring purposes (70% 24m default rate + 30% average PSI). It is not an industry-standard metric but serves as a single-view signal to prioritize vintages requiring closer review.

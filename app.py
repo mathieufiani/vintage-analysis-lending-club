@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Portfolio Risk Dashboard", layout="wide")
 
@@ -13,40 +14,100 @@ def load_data():
 
 vintage_curves, psi_df, vintage_by_grade = load_data()
 
+# --- Risk Score par vintage ---
+def compute_risk_score(vintage_curves, psi_df):
+    # Normalise dr_24m entre 0 et 1
+    dr = vintage_curves['dr_24m'].reset_index()
+    dr.columns = ['vintage', 'dr_24m']
+    dr['dr_norm'] = (dr['dr_24m'] - dr['dr_24m'].min()) / (dr['dr_24m'].max() - dr['dr_24m'].min())
+
+    # PSI moyen par année
+    psi_avg = psi_df.groupby('year')['psi'].mean().reset_index()
+    psi_avg.columns = ['year', 'psi_avg']
+    psi_avg['psi_norm'] = (psi_avg['psi_avg'] - psi_avg['psi_avg'].min()) / (psi_avg['psi_avg'].max() - psi_avg['psi_avg'].min())
+
+    # Extraire l'année du vintage pour joindre avec PSI
+    dr['year'] = dr['vintage'].str[:4].astype(int)
+    dr = dr.merge(psi_avg[['year', 'psi_norm']], on='year', how='left').fillna(0)
+
+    # Score combiné : 70% default rate, 30% PSI
+    dr['risk_score'] = (0.7 * dr['dr_norm'] + 0.3 * dr['psi_norm']) * 100
+
+    def status(score):
+        if score < 33:
+            return '🟢 Stable'
+        elif score < 66:
+            return '🟡 Watch'
+        else:
+            return '🔴 Alert'
+
+    dr['status'] = dr['risk_score'].apply(status)
+    return dr
+
+risk_df = compute_risk_score(vintage_curves, psi_df)
+
+# --- Header ---
 st.title("Portfolio Risk Analytics Dashboard")
 st.markdown("Lending Club 2007–2018 — Vintage Analysis & Model Drift")
 
+# --- Section 0 : Risk Score ---
+st.header("0. Vintage Risk Score")
+st.markdown("Composite score: 70% default rate (24m) + 30% average PSI. Thresholds: 🟢 Stable < 33 / 🟡 Watch < 66 / 🔴 Alert ≥ 66")
 
+color_map = {'🟢 Stable': 'green', '🟡 Watch': 'orange', '🔴 Alert': 'red'}
+
+fig_risk = go.Figure()
+
+fig_risk.add_trace(go.Scatter(
+    x=risk_df['vintage'],
+    y=risk_df['risk_score'],
+    mode='lines',
+    line=dict(color='lightgray', width=1),
+    showlegend=False
+))
+
+for status_label, color in color_map.items():
+    group = risk_df[risk_df['status'] == status_label]
+    fig_risk.add_trace(go.Scatter(
+        x=group['vintage'],
+        y=group['risk_score'],
+        mode='markers',
+        name=status_label,
+        marker=dict(color=color, size=8)
+    ))
+
+fig_risk.add_hline(y=33, line_dash='dash', line_color='orange', annotation_text='Watch threshold')
+fig_risk.add_hline(y=66, line_dash='dash', line_color='red', annotation_text='Alert threshold')
+fig_risk.update_layout(xaxis_title='Vintage', yaxis_title='Risk Score (0-100)', height=400)
+st.plotly_chart(fig_risk, use_container_width=True)
+
+# --- Section 1 : Vintage Curves ---
 st.header("1. Vintage Default Curves")
 
 horizon = st.selectbox("Horizon", ['dr_12m', 'dr_24m', 'dr_36m'], index=1)
 
-fig, ax = plt.subplots(figsize=(14, 5))
-vintage_curves[horizon].plot(ax=ax, marker='o', color='steelblue')
-ax.set_title(f'Cumulative Default Rate — {horizon}')
-ax.set_ylabel('Default Rate')
-ax.set_xlabel('Vintage (Quarter)')
-ax.tick_params(axis='x', rotation=45)
-plt.tight_layout()
-st.pyplot(fig)
+df_plot = vintage_curves[[horizon]].reset_index()
+df_plot.columns = ['vintage', 'default_rate']
 
+fig1 = px.line(df_plot, x='vintage', y='default_rate', markers=True,
+               title=f'Cumulative Default Rate — {horizon}',
+               labels={'default_rate': 'Default Rate', 'vintage': 'Vintage (Quarter)'})
+fig1.update_traces(line_color='steelblue')
+fig1.update_layout(height=400)
+st.plotly_chart(fig1, use_container_width=True)
 
+# --- Section 2 : PSI ---
 st.header("2. Feature Drift — PSI Evolution")
 
-fig, ax = plt.subplots(figsize=(10, 5))
-for feature in psi_df['feature'].unique():
-    data = psi_df[psi_df['feature'] == feature]
-    ax.plot(data['year'], data['psi'], marker='o', label=feature)
+fig2 = px.line(psi_df, x='year', y='psi', color='feature', markers=True,
+               title='PSI by Feature — 2015 to 2018',
+               labels={'psi': 'PSI', 'year': 'Year'})
+fig2.add_hline(y=0.1, line_dash='dash', line_color='orange', annotation_text='Warning (0.1)')
+fig2.add_hline(y=0.25, line_dash='dash', line_color='red', annotation_text='Alert (0.25)')
+fig2.update_layout(height=400)
+st.plotly_chart(fig2, use_container_width=True)
 
-ax.axhline(y=0.1, color='orange', linestyle='--', label='Warning (0.1)')
-ax.axhline(y=0.25, color='red', linestyle='--', label='Alert (0.25)')
-ax.set_title('PSI by Feature — 2015 to 2018')
-ax.set_ylabel('PSI')
-ax.set_xlabel('Year')
-ax.legend()
-plt.tight_layout()
-st.pyplot(fig)
-
+# --- Section 3 : Default by Grade ---
 st.header("3. Default Rate by Grade & Vintage")
 
 grade_selected = st.multiselect(
@@ -54,22 +115,18 @@ grade_selected = st.multiselect(
     options=sorted(vintage_by_grade['grade'].unique()),
     default=['A', 'C', 'E', 'G']
 )
+horizon_grade = st.selectbox("Horizon", ['dr_12m', 'dr_24m', 'dr_36m'], index=1, key='grade_horizon')
 
-horizon_grade = st.selectbox("Horizon ", ['dr_12m', 'dr_24m', 'dr_36m'], index=1, key='grade_horizon')
+df_grade = vintage_by_grade[vintage_by_grade['grade'].isin(grade_selected)].copy()
+df_grade['vintage'] = df_grade['vintage'].astype(str)
 
-fig, ax = plt.subplots(figsize=(14, 5))
-for grade in grade_selected:
-    data = vintage_by_grade[vintage_by_grade['grade'] == grade]
-    ax.plot(data['vintage'].astype(str), data[horizon_grade], marker='o', label=f'Grade {grade}')
+fig3 = px.line(df_grade, x='vintage', y=horizon_grade, color='grade', markers=True,
+               title=f'Default Rate by Grade — {horizon_grade}',
+               labels={horizon_grade: 'Default Rate', 'vintage': 'Vintage'})
+fig3.update_layout(height=400)
+st.plotly_chart(fig3, use_container_width=True)
 
-ax.set_title(f'Default Rate by Grade — {horizon_grade}')
-ax.set_ylabel('Default Rate')
-ax.set_xlabel('Vintage')
-ax.legend()
-ax.tick_params(axis='x', rotation=45)
-plt.tight_layout()
-st.pyplot(fig)
-
+# --- Section 4 : Vintage Comparison ---
 st.header("4. Vintage Comparison — Default vs Prepayment")
 
 vintages_available = sorted(vintage_by_grade['vintage'].astype(str).unique())
@@ -79,22 +136,19 @@ vintages_selected = st.multiselect(
     default=['2010Q1', '2013Q1', '2016Q1', '2018Q1']
 )
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+df_comp = vintage_by_grade[vintage_by_grade['vintage'].astype(str).isin(vintages_selected)].copy()
+df_comp['vintage'] = df_comp['vintage'].astype(str)
 
-for vintage in vintages_selected:
-    data = vintage_by_grade[vintage_by_grade['vintage'].astype(str) == vintage]
-    ax1.plot(data['grade'], data['dr_24m'], marker='o', label=vintage)
-    ax2.plot(data['grade'], data['prepayment_rate'], marker='o', label=vintage)
+col1, col2 = st.columns(2)
 
-ax1.set_title('24m Default Rate by Grade')
-ax1.set_ylabel('Default Rate')
-ax1.set_xlabel('Grade')
-ax1.legend()
+with col1:
+    fig4a = px.line(df_comp, x='grade', y='dr_24m', color='vintage', markers=True,
+                    title='24m Default Rate by Grade',
+                    labels={'dr_24m': 'Default Rate', 'grade': 'Grade'})
+    st.plotly_chart(fig4a, use_container_width=True)
 
-ax2.set_title('Prepayment Rate by Grade')
-ax2.set_ylabel('Prepayment Rate')
-ax2.set_xlabel('Grade')
-ax2.legend()
-
-plt.tight_layout()
-st.pyplot(fig)
+with col2:
+    fig4b = px.line(df_comp, x='grade', y='prepayment_rate', color='vintage', markers=True,
+                    title='Prepayment Rate by Grade',
+                    labels={'prepayment_rate': 'Prepayment Rate', 'grade': 'Grade'})
+    st.plotly_chart(fig4b, use_container_width=True)
