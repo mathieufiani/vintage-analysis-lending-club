@@ -20,7 +20,6 @@ venv/
 
 # Data — ne pas committer les raw data (trop lourdes)
 data/raw/
-data/processed/
 
 # Streamlit
 .streamlit/secrets.toml
