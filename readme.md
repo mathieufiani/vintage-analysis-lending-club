@@ -31,7 +31,7 @@ Primarily underwriting. PSI analysis shows the FICO score distribution shifted s
 - Delinquency rate tracking was not possible due to absence of delinquency date columns
 
 ## Dashboard
-Live dashboard: [URL]
+Live dashboard: [[URL]](https://vintage-analysis-lending-club.streamlit.app/)
 
 ## Future Evolution
 - Rebuild dashboard in React + D3.js for production-grade interactivity
