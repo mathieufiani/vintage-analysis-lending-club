@@ -1,7 +1,3 @@
-C'est bon. Voilà la version mise en forme :
-
----
-
 # Vintage Analysis & Model Drift Dashboard
 **Lending Club Personal Loans — 2007 to 2018**
 
@@ -40,9 +36,3 @@ Live dashboard: [URL]
 ## Future Evolution
 - Rebuild dashboard in React + D3.js for production-grade interactivity
 - Connect vintage analysis to a custom RAG for natural language portfolio querying
-
----
-
-Colle ça dans ton `README.md`, remplace [URL] quand t'as déployé, et le projet est ship.
-
-Prochaine étape : déployer sur Streamlit Cloud ou on attaque le projet 3 ?
